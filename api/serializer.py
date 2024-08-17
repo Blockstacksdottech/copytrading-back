@@ -1,5 +1,8 @@
 from .models import (
-    CustomUser
+    CustomUser,
+    Strategy,
+    Subscription,
+    Profile
 )
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -92,3 +95,69 @@ class UserSerializer(ModelSerializer):
         model = CustomUser
         fields = "__all__"
         extra_kwargs = {'password': {'write_only': True, 'required': True}}
+
+class CreatorSerializer(ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = ["id","username","name","email"]
+
+class StrategySerializer(serializers.ModelSerializer):
+    creator = serializers.ReadOnlyField(source='creator.username')
+    subs  = serializers.SerializerMethodField()
+    creator  = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Strategy
+        fields = '__all__'
+
+    def get_subs(self,instance):
+        return Subscription.objects.filter(strategy=instance).count()
+
+    def get_creator(self,instance):
+        return CreatorSerializer(instance.creator).data
+
+class SubscriptionSerializer(serializers.ModelSerializer):
+    strategy = serializers.SerializerMethodField()
+    subscriber = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Subscription
+        fields = '__all__'
+    
+    def get_strategy(self,instance):
+        return StrategySerializer(instance.strategy).data
+    
+    def get_subscriber(self,instance):
+        return CreatorSerializer(instance.subscriber).data
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True)
+    confirm_password = serializers.CharField(required=True)
+
+    def validate_old_password(self, value):
+        user = self.context['request'].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Old password is incorrect.")
+        return value
+
+    def validate(self, data):
+        if data['new_password'] != data['confirm_password']:
+            raise serializers.ValidationError("New passwords do not match.")
+        return data
+
+    def save(self, **kwargs):
+        user = self.context['request'].user
+        user.set_password(self.validated_data['new_password'])
+        user.save()
+        return user
+
+class ProfileSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+    class Meta:
+        model = Profile
+        fields = '__all__'
+
+    def get_user(self,instance):
+        return CreatorSerializer(instance.user).data
