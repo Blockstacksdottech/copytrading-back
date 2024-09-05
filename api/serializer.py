@@ -2,7 +2,13 @@ from .models import (
     CustomUser,
     Strategy,
     Subscription,
-    Profile
+    Profile,
+    UserDocuments,
+    Brokers,
+    Trade,
+    Result,
+    Ticket,
+    Message
 )
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -90,45 +96,172 @@ class MyTokenObtainPairSerializer(MyTokenObtainSerializer):
         return data
 
 
+class AdmBrokerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Brokers
+        fields = "__all__"
+
+
 class UserSerializer(ModelSerializer):
     class Meta:
         model = CustomUser
         fields = "__all__"
         extra_kwargs = {'password': {'write_only': True, 'required': True}}
 
+
 class CreatorSerializer(ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ["id","username","name","email"]
+        fields = ["id", "username", "name", "email","is_superuser","isInvestor"]
+
 
 class StrategySerializer(serializers.ModelSerializer):
     creator = serializers.ReadOnlyField(source='creator.username')
-    subs  = serializers.SerializerMethodField()
-    creator  = serializers.SerializerMethodField()
+    subs = serializers.SerializerMethodField()
+    creator = serializers.SerializerMethodField()
+    broker = serializers.SerializerMethodField()
 
     class Meta:
         model = Strategy
         fields = '__all__'
 
-    def get_subs(self,instance):
+    def get_subs(self, instance):
         return Subscription.objects.filter(strategy=instance).count()
 
-    def get_creator(self,instance):
+    def get_creator(self, instance):
         return CreatorSerializer(instance.creator).data
+
+    def get_broker(self, instance):
+        return AdmBrokerSerializer(instance.broker).data
+
+
+class TradeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Trade
+        fields = '__all__'
+
+
+class ResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Result
+        fields = "__all__"
+
+
+class ResultWithoutMonthsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Result
+        fields = ["strategy",
+                  "timestamp",
+                  "annual_return_percentage",
+                  "max_drawdown_percentage",
+                  "total_trades",
+                  "win_percentage",
+                  "profit_factor",
+                  "winning_months",
+                  "monthly_pl",
+                  "todays_pl",
+                  "date"]
+
+
+class VerboseStrategySerializer(StrategySerializer):
+    trades = serializers.SerializerMethodField()
+    result = serializers.SerializerMethodField()
+
+    def get_trades(self, instance):
+        limit = 10
+        trades = Trade.objects.filter(strategy=instance)
+        if len(trades) > limit:
+            trades = trades[:10]
+        return TradeSerializer(trades, many=True).data
+
+    def get_result(self, instance):
+        result = Result.objects.filter(strategy=instance).order_by("-date")
+        if len(result) == 0:
+            return {
+                "strategy": instance.id,
+                "timestamp": "2024-09-04T16:59:17.000Z",
+                "annual_return_percentage": 0.00,
+                "max_drawdown_percentage": 0.00,
+                "total_trades": 0,
+                "win_percentage": 0.00,
+                "profit_factor": 0.00,
+                "winning_months": 0,
+                "monthly_pl": {},
+                "todays_pl": 0.00,
+                "date": "2024-09-04"
+            }
+        else:
+            return ResultSerializer(result[0]).data
+
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     strategy = serializers.SerializerMethodField()
     subscriber = serializers.SerializerMethodField()
+    result = serializers.SerializerMethodField()
 
     class Meta:
         model = Subscription
         fields = '__all__'
-    
-    def get_strategy(self,instance):
+
+    def get_strategy(self, instance):
         return StrategySerializer(instance.strategy).data
-    
-    def get_subscriber(self,instance):
+
+    def get_subscriber(self, instance):
         return CreatorSerializer(instance.subscriber).data
+    
+    def get_result(self, instance):
+        result = Result.objects.filter(strategy=instance.strategy).order_by("-date")
+        if len(result) == 0:
+            return {
+                "strategy": instance.id,
+                "timestamp": "2024-09-04T16:59:17.000Z",
+                "annual_return_percentage": 0.00,
+                "max_drawdown_percentage": 0.00,
+                "total_trades": 0,
+                "win_percentage": 0.00,
+                "profit_factor": 0.00,
+                "winning_months": 0,
+                "monthly_pl": {},
+                "todays_pl": 0.00,
+                "date": "2024-09-04"
+            }
+        else:
+            return ResultWithoutMonthsSerializer(result[0]).data
+
+
+class WatchListSerializer(serializers.ModelSerializer):
+    strategy = serializers.SerializerMethodField()
+    subscriber = serializers.SerializerMethodField()
+    result = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Subscription
+        fields = '__all__'
+
+    def get_strategy(self, instance):
+        return StrategySerializer(instance.strategy).data
+
+    def get_subscriber(self, instance):
+        return CreatorSerializer(instance.subscriber).data
+    
+    def get_result(self, instance):
+        result = Result.objects.filter(strategy=instance.strategy).order_by("-date")
+        if len(result) == 0:
+            return {
+                "strategy": instance.id,
+                "timestamp": "2024-09-04T16:59:17.000Z",
+                "annual_return_percentage": 0.00,
+                "max_drawdown_percentage": 0.00,
+                "total_trades": 0,
+                "win_percentage": 0.00,
+                "profit_factor": 0.00,
+                "winning_months": 0,
+                "monthly_pl": {},
+                "todays_pl": 0.00,
+                "date": "2024-09-04"
+            }
+        else:
+            return ResultWithoutMonthsSerializer(result[0]).data
 
 
 class ChangePasswordSerializer(serializers.Serializer):
@@ -153,11 +286,77 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.save()
         return user
 
+
 class ProfileSerializer(serializers.ModelSerializer):
-    user = serializers.SerializerMethodField()
     class Meta:
         model = Profile
         fields = '__all__'
 
-    def get_user(self,instance):
-        return CreatorSerializer(instance.user).data
+
+class DocumentSerialzier(serializers.ModelSerializer):
+    class Meta:
+        model = UserDocuments
+        fields = '__all__'
+
+
+class AdmUserSerializer(serializers.ModelSerializer):
+    documents = serializers.SerializerMethodField()
+    profile = serializers.SerializerMethodField()
+    subscriptions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomUser
+        fields = "__all__"
+        extra_kwargs = {'password': {'write_only': True, 'required': True}}
+
+    def get_documents(self, instance):
+        docs = UserDocuments.objects.filter(user=instance).first()
+        if docs:
+            return DocumentSerialzier(docs).data
+        else:
+            return None
+
+    def get_profile(self, instance):
+        profile = Profile.objects.filter(user=instance).first()
+        if profile:
+            return ProfileSerializer(profile).data
+        else:
+            return None
+
+    def get_subscriptions(self, instance):
+        subs = Subscription.objects.filter(subscriber=instance)
+        return SubscriptionSerializer(subs, many=True).data
+    
+class MessageUserSerializer(serializers.ModelSerializer):
+    profile = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CustomUser
+        fields = ["id", "username", "name", "email","is_superuser","isInvestor","profile"]
+
+    def get_profile(self, instance):
+        profile = Profile.objects.filter(user=instance).first()
+        if profile:
+            return ProfileSerializer(profile).data
+        else:
+            return None
+
+class MessageSerializer(serializers.ModelSerializer):
+    sender = MessageUserSerializer( read_only=True)
+    
+    class Meta:
+        model = Message
+        fields = ['id', 'sender', 'message', 'date_sent']
+
+class TicketSerializer(serializers.ModelSerializer):
+    user = CreatorSerializer( read_only=True)
+    messages = MessageSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Ticket
+        fields = ['id', 'user', 'subject', 'description', 'date_created', 'isClosed', 'messages']
+
+class CreateTicketSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Ticket
+        fields = ['subject', 'description']
