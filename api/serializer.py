@@ -116,7 +116,6 @@ class CreatorSerializer(ModelSerializer):
 
 
 class StrategySerializer(serializers.ModelSerializer):
-    creator = serializers.ReadOnlyField(source='creator.username')
     subs = serializers.SerializerMethodField()
     creator = serializers.SerializerMethodField()
     broker = serializers.SerializerMethodField()
@@ -134,6 +133,10 @@ class StrategySerializer(serializers.ModelSerializer):
     def get_broker(self, instance):
         return AdmBrokerSerializer(instance.broker).data
 
+class MinStrategySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Strategy
+        fields = '__all__'
 
 class TradeSerializer(serializers.ModelSerializer):
     class Meta:

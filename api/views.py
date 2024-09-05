@@ -146,14 +146,35 @@ class VerboseStrategyViewSet(ModelViewSet):
 
     def get_queryset(self):
         return Strategy.objects.all()
+    
+class StrategyCreator(ModelViewSet):
+    serializer_class = MinStrategySerializer
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['post']
 
 class StrategyViewSet(ModelViewSet):
     
     serializer_class = StrategySerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    def perform_create(self, serializer):
-        serializer.save(creator=self.request.user)
+    """ def perform_create(self, serializer):
+        #data = self.request.data 
+         data['creator'] = self.request.user.id
+        new_data = {
+            'creator': data['creator'],
+            **data,  # Unpack the original request data (without modification)
+        } 
+         d = MinStrategySerializer(data=data)
+        if d.is_valid():
+             res = d.save()
+            print(res)
+            return res 
+            return True
+        else:
+            print("failed")
+            print(d.error_messages)
+            return False 
+        return True """
     
     def get_queryset(self):
         return Strategy.objects.filter(creator=self.request.user)

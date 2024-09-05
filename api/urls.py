@@ -10,6 +10,7 @@ from rest_framework import routers
 router = routers.SimpleRouter()
 router.register("adminvestors",AdmUserList,basename='admuserlist')
 router.register(r'strategies', StrategyViewSet,basename='strategies')
+router.register(r'create-strategy',StrategyCreator,basename="strat-creator")
 router.register(r'detailedstrategies', VerboseStrategyViewSet,basename='strategies-detailed')
 router.register(r'brokers',AdmBrokerViewSet,basename='admin-brokers')
 router.register(r'tickets', TicketViewSet, basename='ticket')
