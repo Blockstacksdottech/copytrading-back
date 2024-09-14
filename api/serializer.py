@@ -8,7 +8,9 @@ from .models import (
     Trade,
     Result,
     Ticket,
-    Message
+    Message,
+    RecoveryRequest,
+    SubscriptionRequest
 )
 from rest_framework.serializers import ModelSerializer, SerializerMethodField
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -114,11 +116,23 @@ class CreatorSerializer(ModelSerializer):
         model = CustomUser
         fields = ["id", "username", "name", "email","is_superuser","isInvestor"]
 
+class SubscriptionRequestSerializer(serializers.ModelSerializer):
+
+    subscriber = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SubscriptionRequest
+        fields = '__all__'
+
+    def get_subscriber(self,instance):
+        return CreatorSerializer(instance.subscriber).data
 
 class StrategySerializer(serializers.ModelSerializer):
     subs = serializers.SerializerMethodField()
     creator = serializers.SerializerMethodField()
     broker = serializers.SerializerMethodField()
+    pending = serializers.SerializerMethodField()
+
 
     class Meta:
         model = Strategy
@@ -132,6 +146,9 @@ class StrategySerializer(serializers.ModelSerializer):
 
     def get_broker(self, instance):
         return AdmBrokerSerializer(instance.broker).data
+    
+    def get_pending(self,instance):
+        return SubscriptionRequest.objects.filter(strategy=instance).count()
 
 class MinStrategySerializer(serializers.ModelSerializer):
     class Meta:
@@ -169,6 +186,7 @@ class ResultWithoutMonthsSerializer(serializers.ModelSerializer):
 class VerboseStrategySerializer(StrategySerializer):
     trades = serializers.SerializerMethodField()
     result = serializers.SerializerMethodField()
+    isPending = serializers.SerializerMethodField()
 
     def get_trades(self, instance):
         limit = 10
@@ -196,6 +214,9 @@ class VerboseStrategySerializer(StrategySerializer):
         else:
             return ResultSerializer(result[0]).data
 
+    def get_isPending(self,instance):
+        print(self.context)
+        return SubscriptionRequest.objects.filter(strategy=instance,subscriber=self.context['request'].user).exists()
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     strategy = serializers.SerializerMethodField()
@@ -363,3 +384,31 @@ class CreateTicketSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ticket
         fields = ['subject', 'description']
+
+
+class ContactFormSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255)
+    email = serializers.EmailField()
+    subject = serializers.CharField(max_length=255)
+    message = serializers.CharField()
+
+class EmailSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+class PasswordResetSerializer(serializers.Serializer):
+    recovery_id = serializers.UUIDField()
+    new_password = serializers.CharField(write_only=True)
+
+    def validate_recovery_id(self, value):
+        try:
+            self.recovery_request = RecoveryRequest.objects.get(
+                recovery_id=value)
+        except RecoveryRequest.DoesNotExist:
+            raise serializers.ValidationError("Invalid recovery ID")
+        return value
+
+    def save(self):
+        self.recovery_request.user.set_password(
+            self.validated_data['new_password'])
+        self.recovery_request.user.save()
+        self.recovery_request.delete()

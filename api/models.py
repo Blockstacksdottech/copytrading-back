@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+import uuid
 
 # Create your models here.
 
@@ -13,6 +14,14 @@ class CustomUser(AbstractUser):
 
     def __str__(self):
         return self.username
+
+class RecoveryRequest(models.Model):
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE)
+    recovery_id = models.UUIDField(default=uuid.uuid4, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"RecoveryRequest for {self.user.username}"
     
     
 class Profile(models.Model):
@@ -73,6 +82,15 @@ class Strategy(models.Model):
 
     def __str__(self):
         return self.name
+
+class SubscriptionRequest(models.Model):
+    strategy = models.ForeignKey(Strategy, on_delete=models.CASCADE)
+    subscriber = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    approved = models.BooleanField(default=False)
+    date_requested = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.subscriber.username} requested to subscribe to {self.strategy.name}"
 
 class Subscription(models.Model):
     strategy = models.ForeignKey(Strategy, on_delete=models.CASCADE)

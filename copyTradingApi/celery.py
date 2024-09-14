@@ -22,7 +22,7 @@ app.conf.beat_schedule = {
     # Executes every Monday morning at 7:30 a.m.
     'fetch-data': {
         'task': 'api.tasks.fetch_data',
-        'schedule': crontab(minute=35),#60 * 30,
+        'schedule': crontab(minute=30),#60 * 30,
         'args': (),
     },
 }

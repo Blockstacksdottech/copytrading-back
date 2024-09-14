@@ -9,6 +9,8 @@ from django.db.models import Sum
 from django.utils import timezone
 from collections import defaultdict
 from rest_framework.decorators import action
+from django.conf import settings
+from django.core.mail import send_mail
 
 # serializers imports
 from .serializer import *
@@ -157,27 +159,14 @@ class StrategyViewSet(ModelViewSet):
     serializer_class = StrategySerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    """ def perform_create(self, serializer):
-        #data = self.request.data 
-         data['creator'] = self.request.user.id
-        new_data = {
-            'creator': data['creator'],
-            **data,  # Unpack the original request data (without modification)
-        } 
-         d = MinStrategySerializer(data=data)
-        if d.is_valid():
-             res = d.save()
-            print(res)
-            return res 
-            return True
-        else:
-            print("failed")
-            print(d.error_messages)
-            return False 
-        return True """
+    
     
     def get_queryset(self):
         return Strategy.objects.filter(creator=self.request.user)
+    
+    def get_serializer_context(self):
+        # Pass the request to the serializer context
+        return {'request': self.request}
     
     @action(detail=True, methods=['post'], url_path='update-status')
     def updateStatus(self,request,pk=None):
@@ -208,7 +197,7 @@ class StrategyViewSet(ModelViewSet):
             sub = Subscription.objects.filter(strategy=strat).first()
             if not sub:
                 res.append(strat)
-        serializer = VerboseStrategySerializer(res, many=True)
+        serializer = VerboseStrategySerializer(res, many=True, context={'request' : request})
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'], url_path='subscribed')
@@ -226,27 +215,88 @@ class StrategyViewSet(ModelViewSet):
         
         serializer = WatchListSerializer(subs,many=True)
         return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'], url_path='subscription-requests')
+    def get_subscription_requests(self, request, pk=None):
+        strategy = Strategy.objects.filter(id=pk).first()
 
+        # Check if the strategy exists
+        if not strategy:
+            return Response({"detail": "Strategy not found."}, status=HTTP_404_NOT_FOUND)
+
+        # Check if the current user is the creator (owner) of the strategy
+        if strategy.creator != request.user:
+            return Response({"detail": "You are not authorized to view these requests."}, status=HTTP_403_FORBIDDEN)
+
+        # Get all subscription requests for this strategy
+        subscription_requests = SubscriptionRequest.objects.filter(strategy=strategy)
+
+        # Serialize the subscription requests
+        serializer = SubscriptionRequestSerializer(subscription_requests, many=True)
+
+        return Response(serializer.data, status=HTTP_200_OK)
+    
     @action(detail=True, methods=['post'], url_path='subscribe')
     def subscribe(self, request, pk=None):
-        print(pk)
         strategy = Strategy.objects.filter(id=pk).first()
         if not strategy:
-            return Response({"detail": "Not Found."}, status=HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Strategy not found."}, status=HTTP_400_BAD_REQUEST)
+
         subscriber = request.user
 
-        # Check if maxSubscribers limit has been reached
-        current_subscribers = Subscription.objects.filter(strategy=strategy).count()
-        if strategy.maxSubscribers is not None and current_subscribers >= strategy.maxSubscribers:
-            return Response({"detail": "Maximum number of subscribers reached."}, status=HTTP_400_BAD_REQUEST)
+        # Check if there's already a pending subscription request
+        if SubscriptionRequest.objects.filter(strategy=strategy, subscriber=subscriber, approved=False).exists():
+            return Response({"detail": "You have already requested to subscribe."}, status=HTTP_400_BAD_REQUEST)
 
-        # Check if user is already subscribed
-        if Subscription.objects.filter(strategy=strategy, subscriber=subscriber).exists():
-            return Response({"detail": "Already subscribed."}, status=HTTP_400_BAD_REQUEST)
+        # Create a subscription request
+        subscription_request = SubscriptionRequest(strategy=strategy, subscriber=subscriber)
+        subscription_request.save()
 
-        subscription = Subscription(strategy=strategy, subscriber=subscriber)
-        subscription.save()
-        return Response({"detail": "Subscribed successfully."}, status=HTTP_201_CREATED)
+        return Response({"detail": "Subscription request sent. Awaiting approval."}, status=HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='approve-subscription/(?P<subscription_request_pk>\d+)')
+    def approve_subscription(self, request, pk=None, subscription_request_pk=None):
+        # Fetch the subscription request using the provided subscription_request_pk
+        subscription_request = SubscriptionRequest.objects.filter(id=subscription_request_pk, approved=False).first()
+        if not subscription_request:
+            return Response({"detail": "Subscription request not found or already approved."}, status=HTTP_400_BAD_REQUEST)
+
+        strategy = subscription_request.strategy
+
+        # Check if the current user is the manager/creator of the strategy
+        if strategy.creator != request.user:
+            return Response({"detail": "You are not authorized to approve this subscription."}, status=HTTP_403_FORBIDDEN)
+        
+        
+        # Send email to the broker
+        send_mail(
+            'Subscription Request Approved',
+            f'Hello, {subscription_request.subscriber.username} wants to subscribe to the strategy "{strategy.name}" managed by {strategy.creator.username}.',
+            settings.EMAIL_HOST_USER,  
+            [strategy.broker.email],
+            fail_silently=False,
+        )
+        sub = Subscription.objects.create(strategy=strategy, subscriber=subscription_request.subscriber)
+        sub.save()
+        subscription_request.delete()
+        return Response({"detail": "Subscription approved and broker notified."}, status=HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='decline-subscription/(?P<subscription_request_pk>\d+)')
+    def decline_subscription(self, request, pk=None, subscription_request_pk=None):
+        subscription_request = SubscriptionRequest.objects.filter(id=subscription_request_pk, approved=False).first()
+        if not subscription_request:
+            return Response({"detail": "Subscription request not found or already handled."}, status=HTTP_400_BAD_REQUEST)
+
+        strategy = subscription_request.strategy
+
+        # Check if the current user is the manager/creator of the strategy
+        if strategy.creator != request.user:
+            return Response({"detail": "You are not authorized to decline this subscription."}, status=HTTP_403_FORBIDDEN)
+        
+        # Decline and delete the request
+        subscription_request.delete()
+
+        return Response({"detail": "Subscription request declined."}, status=HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='unsubscribe')
     def unsubscribe(self, request, pk=None):
@@ -260,7 +310,13 @@ class StrategyViewSet(ModelViewSet):
         subscription = Subscription.objects.filter(strategy=strategy, subscriber=subscriber).first()
         if not subscription:
             return Response({"detail": "Not subscribed."}, status=HTTP_400_BAD_REQUEST)
-
+        send_mail(
+            'Subscription Cancelled',
+            f'Hello, {subscriber.username} has unsubscribed from the strategy "{strategy.name}" managed by {strategy.creator.username}.',
+            settings.EMAIL_HOST_USER,  
+            [strategy.broker.email],
+            fail_silently=False,
+        )
         subscription.delete()
         return Response({"detail": "Unsubscribed successfully."}, status=HTTP_200_OK)
 
@@ -354,3 +410,77 @@ class MessageViewSet(ModelViewSet):
             serializer.save(sender=self.request.user, ticket=ticket)
         else:
             raise Exception("You do not have permission to send a message to this ticket.")
+        
+class ContactFormView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        serializer = ContactFormSerializer(data=request.data)
+        if serializer.is_valid():
+            name = serializer.validated_data['name']
+            email = serializer.validated_data['email']
+            subject = serializer.validated_data['subject']
+            message = serializer.validated_data['message']
+            print(settings.EMAIL_HOST_PASSWORD)
+            
+            # Send the email
+            send_mail(
+                subject=f"Contact Form Submission: {subject}",
+                message=f"Name: {name}\nEmail: {email}\nMessage:\n{message}",
+                from_email=settings.EMAIL_HOST_USER,  # You can use a no-reply email
+                recipient_list=[settings.SUPPORT_EMAIL,],
+                fail_silently=False,
+            )
+
+            return Response({'message': 'Email sent successfully'}, status=HTTP_200_OK)
+        return Response(serializer.errors, status=HTTP_400_BAD_REQUEST)
+    
+
+class RequestPasswordResetView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        rid = request.query_params.get("rid", None)
+        if rid:
+            recov = RecoveryRequest.objects.filter(recovery_id=rid).first()
+            if recov:
+
+                return Response({}, status=HTTP_200_OK)
+            else:
+                return Response({}, status=HTTP_400_BAD_REQUEST)
+        else:
+            return Response({}, status=HTTP_400_BAD_REQUEST)
+
+    def post(self, request):
+        serializer = EmailSerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            try:
+                user = CustomUser.objects.get(email=email)
+                RecoveryRequest.objects.filter(user=user).delete()
+                recovery_request = RecoveryRequest.objects.create(user=user)
+                recovery_link = f"{settings.FRONT_URL}/reset-password?reqId={recovery_request.recovery_id}"
+                print("sending email here ")
+                print(settings.EMAIL_HOST_USER)
+                send_mail(
+                    'Password Recovery',
+                    f'Click the link to reset your password: {recovery_link}',
+                    settings.EMAIL_HOST_USER,
+                    [email,],
+                    fail_silently=False,
+                )
+                return Response({"detail": "Recovery email sent."}, status=HTTP_200_OK)
+            except CustomUser.DoesNotExist:
+                return Response({"detail": "User with this email does not exist."}, status=HTTP_404_NOT_FOUND)
+        return Response(serializer.errors, status=HTTP_400_BAD_REQUEST)
+    
+class ResetPasswordView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"detail": "Password reset successfully."}, status=HTTP_200_OK)
+        return Response(serializer.errors, status=HTTP_400_BAD_REQUEST)
+    

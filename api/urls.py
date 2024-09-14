@@ -27,5 +27,9 @@ urlpatterns = [
     path("register", Register.as_view()),
     path('change-password', ChangePasswordView.as_view(), name='change-password'),
     path("profile",UserDetailsView.as_view(),name="profile"),
-    path("documents",UserDocumentView.as_view(),name="documents")
+    path("documents",UserDocumentView.as_view(),name="documents"),
+    path('contact', ContactFormView.as_view(), name='contact-form'),
+    path('request-password-reset', RequestPasswordResetView.as_view(),
+         name='request-password-reset'),
+    path('reset-password', ResetPasswordView.as_view(), name='reset-password'),
 ]
