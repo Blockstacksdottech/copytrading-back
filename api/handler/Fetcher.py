@@ -1,7 +1,7 @@
 import pandas as pd
 from api.models import *
 from django.utils import timezone
-
+from urllib.parse import urlparse
 
 
 class Fetcher:
@@ -9,7 +9,18 @@ class Fetcher:
         pass
     
     def clean_url(self,url):
-        new_url = url.split("?")[0].replace("/edit", "") + '/export?gid=0&format=csv'
+        base_url = url.split("?")[0].replace("/edit","")
+        extension = '/export?gid={0}&format=csv'
+        if "gid=" in url:   
+            parsed = urlparse(url)
+            val = ""
+            for q in parsed.query.split("&"):
+                if "gid" in q:
+                    val = q.split("=")[-1]
+                    break
+            new_url = base_url + extension.format(val)
+        else:
+            new_url = base_url + extension.format("0")
         return new_url
 
     def get_data_from_google_sheet(self,url):

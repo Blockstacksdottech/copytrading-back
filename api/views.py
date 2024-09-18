@@ -27,6 +27,11 @@ class IsAdminUserOrReadOnly(permissions.BasePermission):
         print("hello")
         return request.user.is_authenticated and (request.user.is_superuser or request.method in ['GET', 'HEAD', 'OPTIONS'])
 
+class IsAdminUserOrManager(permissions.BasePermission):
+    def has_permission(self, request, view): 
+        print("hello")
+        return request.user.is_authenticated and (request.user.is_superuser or request.user.isInvestor)
+
 # Create your views here.
 
 
@@ -151,7 +156,7 @@ class VerboseStrategyViewSet(ModelViewSet):
     
 class StrategyCreator(ModelViewSet):
     serializer_class = MinStrategySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminUserOrManager]
     http_method_names = ['post']
 
 class StrategyViewSet(ModelViewSet):
@@ -162,7 +167,11 @@ class StrategyViewSet(ModelViewSet):
     
     
     def get_queryset(self):
-        return Strategy.objects.filter(creator=self.request.user)
+        u = self.request.user
+        if u.is_superuser:
+            return Strategy.objects.all()
+        else:
+            return Strategy.objects.filter(creator=self.request.user)
     
     def get_serializer_context(self):
         # Pass the request to the serializer context
@@ -181,8 +190,12 @@ class StrategyViewSet(ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='my-strategies')
     def my_strategies(self, request):
-        creator = request.user
-        strategies = Strategy.objects.filter(creator=creator)
+        u = request.user
+        if not u.is_superuser:
+            creator = request.user
+            strategies = Strategy.objects.filter(creator=creator)
+        else:
+            strategies = Strategy.objects.all()
         serializer = self.get_serializer(strategies, many=True)
         return Response(serializer.data)
     
@@ -192,7 +205,7 @@ class StrategyViewSet(ModelViewSet):
         strategies = Strategy.objects.filter(enabled=True)
         res = []
         for strat in strategies:
-            if strat.creator.username == creator.username:
+            if strat.creator.username == creator.username and not creator.is_superuser:
                 continue
             sub = Subscription.objects.filter(strategy=strat).first()
             if not sub:
@@ -225,7 +238,7 @@ class StrategyViewSet(ModelViewSet):
             return Response({"detail": "Strategy not found."}, status=HTTP_404_NOT_FOUND)
 
         # Check if the current user is the creator (owner) of the strategy
-        if strategy.creator != request.user:
+        if strategy.creator != request.user and not request.user.is_superuser:
             return Response({"detail": "You are not authorized to view these requests."}, status=HTTP_403_FORBIDDEN)
 
         # Get all subscription requests for this strategy
@@ -264,7 +277,7 @@ class StrategyViewSet(ModelViewSet):
         strategy = subscription_request.strategy
 
         # Check if the current user is the manager/creator of the strategy
-        if strategy.creator != request.user:
+        if strategy.creator != request.user and not request.user.is_superuser:
             return Response({"detail": "You are not authorized to approve this subscription."}, status=HTTP_403_FORBIDDEN)
         
         
@@ -290,7 +303,7 @@ class StrategyViewSet(ModelViewSet):
         strategy = subscription_request.strategy
 
         # Check if the current user is the manager/creator of the strategy
-        if strategy.creator != request.user:
+        if strategy.creator != request.user and not request.user.is_superuser:
             return Response({"detail": "You are not authorized to decline this subscription."}, status=HTTP_403_FORBIDDEN)
         
         # Decline and delete the request
