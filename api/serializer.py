@@ -187,6 +187,8 @@ class VerboseStrategySerializer(StrategySerializer):
     trades = serializers.SerializerMethodField()
     result = serializers.SerializerMethodField()
     isPending = serializers.SerializerMethodField()
+    rank = serializers.SerializerMethodField()
+    strategyCount = serializers.SerializerMethodField()
 
     def get_trades(self, instance):
         limit = 10
@@ -203,12 +205,15 @@ class VerboseStrategySerializer(StrategySerializer):
                 "timestamp": "2024-09-04T16:59:17.000Z",
                 "annual_return_percentage": 0.00,
                 "max_drawdown_percentage": 0.00,
+                "win_trades" : 0,
                 "total_trades": 0,
                 "win_percentage": 0.00,
                 "profit_factor": 0.00,
                 "winning_months": 0,
                 "monthly_pl": {},
                 "todays_pl": 0.00,
+                "sharpe_ratio" : 0.00,
+                "sortino_ratio" : 0.00,
                 "date": "2024-09-04"
             }
         else:
@@ -217,6 +222,33 @@ class VerboseStrategySerializer(StrategySerializer):
     def get_isPending(self,instance):
         print(self.context)
         return SubscriptionRequest.objects.filter(strategy=instance,subscriber=self.context['request'].user).exists()
+
+
+    def get_rank(self, instance):
+        # Fetch all strategies and calculate the cumulative P&L
+        strategies = Strategy.objects.all()
+        strategies_with_total_pl = []
+
+        for strategy in strategies:
+            # Get the total P&L from the latest result of each strategy
+            result = Result.objects.filter(strategy=strategy).order_by('-date').first()
+            if result:
+                total_pl = result.annual_return_percentage  # Adjust this to match your P&L field
+                strategies_with_total_pl.append((strategy.id, total_pl))
+
+        # Sort strategies based on total P&L in descending order
+        strategies_with_total_pl.sort(key=lambda x: x[1], reverse=True)
+
+        # Assign rank based on position
+        rank_dict = {strategy_id: rank + 1 for rank, (strategy_id, _) in enumerate(strategies_with_total_pl)}
+
+        # Return the rank for the current strategy instance
+        return rank_dict.get(instance.id, None)
+
+    def get_strategyCount(self, instance):
+        # Return the total number of strategies
+        return Strategy.objects.count()
+    
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     strategy = serializers.SerializerMethodField()

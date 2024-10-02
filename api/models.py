@@ -136,6 +136,7 @@ class Result(models.Model):
     strategy = models.ForeignKey(Strategy, on_delete=models.CASCADE)
     timestamp = models.DateTimeField(auto_now_add=True)
     annual_return_percentage = models.DecimalField(max_digits=10, decimal_places=2)
+    win_trades = models.IntegerField(default=0)
     max_drawdown_percentage = models.DecimalField(max_digits=10, decimal_places=2)
     total_trades = models.IntegerField()
     win_percentage = models.DecimalField(max_digits=5, decimal_places=2)
@@ -143,6 +144,8 @@ class Result(models.Model):
     winning_months = models.IntegerField()
     monthly_pl = models.JSONField()  # Store monthly P/L as a JSON object
     todays_pl = models.DecimalField(default=0,max_digits=10, decimal_places=2)
+    sharpe_ratio = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # New field for Sharpe Ratio
+    sortino_ratio = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # New field for Sortino Ratio
     date = models.DateField()
 
     def __str__(self):
